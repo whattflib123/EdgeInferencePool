@@ -1,10 +1,12 @@
 #include "DpuBackend.hpp"
-#include <vart/runner.hpp>
+#include <vart/runner_ext.hpp>
 #include <xir/graph/subgraph.hpp>
+#include <xir/attrs/attrs.hpp>
 #include <iostream>
 
 DpuBackend::DpuBackend(const xir::Subgraph* subgraph) {
-    runner_ = vart::Runner::create_runner(subgraph, "run");
+    attrs_  = xir::Attrs::create();
+    runner_ = vart::RunnerExt::create_runner(subgraph, attrs_.get());
     std::cout << "[DpuBackend] runner created\n";
 }
 
