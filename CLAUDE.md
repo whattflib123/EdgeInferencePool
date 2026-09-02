@@ -77,13 +77,14 @@ runner->wait(job.first, -1);
 
 | 順序 | 任務 | 對應缺口 | 狀態 |
 |---|---|---|---|
-| 1 | **手刻 INT8 量化暖身**（dev machine，不需 KV260） | 量化數學：scale factor 手算、per-channel vs per-tensor 精度差異；完成後對照 `vai_q_*` 工具實際行為 | 未開始 |
 | 2a | **VideoCapture 串流 pipeline** | VART API 實戰深化；`cv::VideoCapture` 取代 `cv::imread`，producer-consumer 改成 loop | 未開始 |
-| 2b | **M2：現成模型量化部署**（torchvision ResNet50 或 MobileNetV2） | 量化工作流實戰：`vai_q_pytorch` PTQ calibration → `vai_c_xir` 編譯 → xmodel → KV260；每次因硬體限制被迫調整（channel 對齊、不支援 op 替換）**當下記錄**成清單 | 未開始 |
+| 2b | **M2：現成模型量化部署**（torchvision ResNet50 或 MobileNetV2） | 量化工作流實戰：`vai_q_pytorch` PTQ calibration → `vai_c_xir` 編譯 → xmodel → KV260；每次因硬體限制被迫調整（channel 對齊、不支援 op 替換）**當下記錄**成清單；若行為與論文 ZCU102 經驗不符（工具版本差異、參數預設值改變），順手記一筆 | 未開始 |
 | 3 | **刻意製造子圖切分場景** | 為 Profiler 製造可觀測案例；保留一個 DPU 不支援的 op 或跳過 op fusion，確保 xmodel 存在 DPU/CPU 交界 | 未開始 |
 | 4 | **Vitis AI Profiler 實測** | Profiler 實戰：從報表指出子圖切分點的延遲量並解釋原因；發現併入任務 2b 的清單 → 合併成「軟硬體協同設計筆記」 | 未開始 |
 
-執行順序：1 → 2a/2b（可平行）→ 3 → 4。任務 3、4 不等 2a 全完，有可跑的 xmodel 就可插入。
+**旁支（不擋主線，找空檔做）**：把論文量化決策整理成 2-3 個面試素材點——scale factor 怎麼算、PTQ vs QAT 取捨理由、ZCU102 量化前後精度掉多少。論文已經跑過完整流程，只需回想＋寫下來，分鐘等級。
+
+執行順序：2a/2b 平行開始 → 3 → 4。任務 3、4 不等 2a 全完，有可跑的 xmodel 就可插入。
 
 MLIR/LLVM/自訂 NPU dialect 排在面試有回饋後才評估。
 
