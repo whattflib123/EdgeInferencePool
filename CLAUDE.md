@@ -37,35 +37,19 @@ cd ~/EdgeInferencePool/build && make 2>&1
 
 ## 目前狀態（2026-09-02）
 
-**編譯：✅ KV260 上 `make` 通過**
+**M1：✅ 完成並驗證**
 
 ### 已完成
 - `InferenceBackend` pure virtual 介面（`Detection` struct + `run(span<const float>)`）
 - `DpuBackend : InferenceBackend`，持有 `vart::RunnerExt` + `xir::Attrs`
-- `DpuBackend::DpuBackend(subgraph)` — runner 建好（`RunnerExt::create_runner`）
-- `main.cpp` — xmodel 載入、DPU subgraph 搜尋、producer-consumer pipeline
-
-### 卡住點（TODO）
-
-`src/DpuBackend.cpp` 裡兩個 TODO：
-
-```cpp
-// TODO 1: copy input span into inputs[0] tensor buffer
-// hint: auto [ptr, sz] = inputs[0]->data({0,0,0,0});
-//        memcpy(ptr, input.data(), input.size_bytes());
-
-// TODO 2: parse outputs[0] tensor buffer → vector<Detection>
-// hint: outputs[0]->data({0,0,0,0}) 取 ptr，shape 依模型輸出層
-```
-
-**需要 `.xmodel` 才能繼續**——input/output tensor shape 要對上模型。
+- INT8 量化輸入轉換（fix_point scale，逐元素 float → int8 clamp）
+- 輸出解析（top-5 argmax via `std::partial_sort + std::iota`）
+- OpenCV 前處理（Caffe BGR mean subtract：`(pixel - [104,117,123]) / 255`）
+- `main.cpp`：`cv::imread` 單張圖推論，producer-consumer pipeline，KV260 驗證通過
+- 驗證結果：`assets/dog.jpg`（金毛獵犬）→ top-1 class=337（golden retriever）✅
 
 ### 下一步
-1. KV260 上 `find / -name "*.xmodel"` 找現成模型
-2. 確認 tensor shape（ctor 印 `get_inputs()[0]->get_tensor()->get_shape()`）
-3. 填 TODO 1（memcpy）
-4. 填 TODO 2（output parse → Detection）
-5. 中期：考慮把碩論 ResNet-SpatialMixConv 量化出 xmodel，一次解決「有沒有 xmodel」跟「量化實驗數據」兩件事
+任務 1（手刻 INT8 量化）→ 任務 2（M2 VideoCapture + 現成模型量化）
 
 ## 關鍵 VART API 筆記
 
@@ -87,21 +71,21 @@ auto job = runner->execute_async(inputs, outputs);
 runner->wait(job.first, -1);
 ```
 
-## 專案路線圖
+## 專案路線圖（職涯缺口補強版）
 
-| 里程碑 | 內容 | 狀態 |
-|---|---|---|
-| M1 DpuBackend | VART API 接進 InferenceBackend | 🔄 進行中（TODO 未填）|
-| M2 | MobileNetV2 + Vitis-AI 量化，最小物件偵測 | 未開始 |
-| M3 | 機械手臂模擬 pipeline（UR5e + MoveIt2 + Gazebo） | 未開始 |
+目標職缺：AMD Taiwan AI R&D、TSMC AAID 等應用/部署路線。
 
-MLIR/LLVM/自訂 NPU dialect **不列入此路線圖**，排在 M1 完成、求職面試有回饋後再評估是否開新 Mx。
+| 順序 | 任務 | 對應缺口 | 狀態 |
+|---|---|---|---|
+| 1 | **手刻 INT8 量化暖身**（dev machine，不需 KV260） | 量化數學：scale factor 手算、per-channel vs per-tensor 精度差異；完成後對照 `vai_q_*` 工具實際行為 | 未開始 |
+| 2a | **VideoCapture 串流 pipeline** | VART API 實戰深化；`cv::VideoCapture` 取代 `cv::imread`，producer-consumer 改成 loop | 未開始 |
+| 2b | **M2：現成模型量化部署**（torchvision ResNet50 或 MobileNetV2） | 量化工作流實戰：`vai_q_pytorch` PTQ calibration → `vai_c_xir` 編譯 → xmodel → KV260；每次因硬體限制被迫調整（channel 對齊、不支援 op 替換）**當下記錄**成清單 | 未開始 |
+| 3 | **刻意製造子圖切分場景** | 為 Profiler 製造可觀測案例；保留一個 DPU 不支援的 op 或跳過 op fusion，確保 xmodel 存在 DPU/CPU 交界 | 未開始 |
+| 4 | **Vitis AI Profiler 實測** | Profiler 實戰：從報表指出子圖切分點的延遲量並解釋原因；發現併入任務 2b 的清單 → 合併成「軟硬體協同設計筆記」 | 未開始 |
 
-## 並行支線（不佔 M1 進度，不需 KV260）
+執行順序：1 → 2a/2b（可平行）→ 3 → 4。任務 3、4 不等 2a 全完，有可跑的 xmodel 就可插入。
 
-- **ONNX Graph Analyzer**：解析 `.onnx`，印出每層 shape、FLOPs、參數量
-- **手刻 INT8 量化**：FP32 → INT8 → FP32，拿 ResNet-SpatialMixConv 跑出 FP32/PTQ/QAT 三組 accuracy/model size/latency 對照表
-- 目的：支撐 HW-aware ML Systems Engineer 定位裡 quantization/graph 能力主張，可在等 KV260 編譯空檔穿插做
+MLIR/LLVM/自訂 NPU dialect 排在面試有回饋後才評估。
 
 ## 架構說明
 
@@ -121,3 +105,4 @@ FrameQueue                ← mutex + condition_variable producer-consumer
 3. 改完後 rsync + KV260 make 驗證才算完成
 4. DpuBackend 的 inference 邏輯由 Felix 自己寫，給骨架不給完整解答
 5. commit 格式：`feat/fix/refactor/docs/chore(<scope>): <name>`
+6. Felix 同時與 claude.ai（網頁版 Claude）協作——一個階段結束後，詢問是否產出進度總覽（可貼給網頁版 Claude 同步 context）
