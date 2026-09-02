@@ -10,10 +10,11 @@ Felix 的 M1 DpuBackend 專案。把 VART API 接進 `InferenceBackend` 抽象�
 
 ## 使用者背景
 
-- Felix，SRAM AMR perception engineer，目標求職/轉職
+- Felix，SRAM AMR perception engineer，求職定位：**HW-aware ML Systems Engineer**（主軸 deployment/accelerator/FPGA，副軸 compiler/MLIR）
 - C++ Stage 0~13 已完成（pointer、RAII、Rule of Five、span、vector、多執行緒、多型、template）
 - 這個 repo 是把觀念搬進真實硬體專案的實戰期
 - 求職敘事核心：「能指著真實程式碼解釋 RAII / move / span / virtual 怎麼串在一起」
+- MLIR/LLVM 深投入**刻意排在 M1 完成後**才評估，不搶現在進度
 
 ## 環境
 
@@ -34,7 +35,7 @@ rsync -av /home/felix/Desktop/my_stuff/EdgeInferencePool/ root@10.42.0.199:~/Edg
 cd ~/EdgeInferencePool/build && make 2>&1
 ```
 
-## 目前狀態（2026-09-01）
+## 目前狀態（2026-09-02）
 
 **編譯：✅ KV260 上 `make` 通過**
 
@@ -49,14 +50,22 @@ cd ~/EdgeInferencePool/build && make 2>&1
 `src/DpuBackend.cpp` 裡兩個 TODO：
 
 ```cpp
-// TODO: copy input data into inputs[0]'s tensor buffer
-//   hint: inputs[0]->data() returns {void*, size_t}
+// TODO 1: copy input span into inputs[0] tensor buffer
+// hint: auto [ptr, sz] = inputs[0]->data({0,0,0,0});
+//        memcpy(ptr, input.data(), input.size_bytes());
 
-// TODO: parse outputs[0] → Detection objects
-//   shape depends on model output layer
+// TODO 2: parse outputs[0] tensor buffer → vector<Detection>
+// hint: outputs[0]->data({0,0,0,0}) 取 ptr，shape 依模型輸出層
 ```
 
 **需要 `.xmodel` 才能繼續**——input/output tensor shape 要對上模型。
+
+### 下一步
+1. KV260 上 `find / -name "*.xmodel"` 找現成模型
+2. 確認 tensor shape（ctor 印 `get_inputs()[0]->get_tensor()->get_shape()`）
+3. 填 TODO 1（memcpy）
+4. 填 TODO 2（output parse → Detection）
+5. 中期：考慮把碩論 ResNet-SpatialMixConv 量化出 xmodel，一次解決「有沒有 xmodel」跟「量化實驗數據」兩件事
 
 ## 關鍵 VART API 筆記
 
@@ -85,6 +94,14 @@ runner->wait(job.first, -1);
 | M1 DpuBackend | VART API 接進 InferenceBackend | 🔄 進行中（TODO 未填）|
 | M2 | MobileNetV2 + Vitis-AI 量化，最小物件偵測 | 未開始 |
 | M3 | 機械手臂模擬 pipeline（UR5e + MoveIt2 + Gazebo） | 未開始 |
+
+MLIR/LLVM/自訂 NPU dialect **不列入此路線圖**，排在 M1 完成、求職面試有回饋後再評估是否開新 Mx。
+
+## 並行支線（不佔 M1 進度，不需 KV260）
+
+- **ONNX Graph Analyzer**：解析 `.onnx`，印出每層 shape、FLOPs、參數量
+- **手刻 INT8 量化**：FP32 → INT8 → FP32，拿 ResNet-SpatialMixConv 跑出 FP32/PTQ/QAT 三組 accuracy/model size/latency 對照表
+- 目的：支撐 HW-aware ML Systems Engineer 定位裡 quantization/graph 能力主張，可在等 KV260 編譯空檔穿插做
 
 ## 架構說明
 
