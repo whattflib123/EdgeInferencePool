@@ -49,6 +49,10 @@ int main(int argc, char* argv[]) {
             ));
             std::cout << "frame " << f->get_id()
                       << ": " << detections.size() << " detections\n";
+            for (const auto& d : detections) {
+                std::cout << "  class=" << d.class_id << " conf=" << d.confidence << "\n";
+            }
+
         }
     });
 

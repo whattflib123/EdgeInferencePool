@@ -8,6 +8,19 @@ DpuBackend::DpuBackend(const xir::Subgraph* subgraph) {
     attrs_  = xir::Attrs::create();
     runner_ = vart::RunnerExt::create_runner(subgraph, attrs_.get());
     std::cout << "[DpuBackend] runner created\n";
+
+    for (auto* tb : runner_->get_inputs()) {
+        auto shape = tb->get_tensor()->get_shape();
+        std::cout << "[IN ] " << tb->get_tensor()->get_name() << " shape:";
+        for (int d : shape) std::cout << " " << d;
+        std::cout << "\n";
+    }
+    for (auto* tb : runner_->get_outputs()) {
+        auto shape = tb->get_tensor()->get_shape();
+        std::cout << "[OUT] " << tb->get_tensor()->get_name() << " shape:";
+        for (int d : shape) std::cout << " " << d;
+        std::cout << "\n";
+    }
 }
 
 std::vector<Detection> DpuBackend::run(std::span<const float> input) {
@@ -18,6 +31,26 @@ std::vector<Detection> DpuBackend::run(std::span<const float> input) {
     //   hint: inputs[0]->data() returns {void*, size_t}
     //   use memcpy(ptr, input.data(), input.size_bytes())
 
+    // input[i] (float) × 128 → clamp [-128, 127] → int8_t → 寫進 ptr[i]
+    // Step1: 取得 ptr
+    auto [ptr, size] = inputs[0]->data(std::vector<int>{0, 0, 0, 0});
+    int8_t* dst = reinterpret_cast<int8_t*>(ptr);
+
+    // step2: 
+    int fp = inputs[0]->get_tensor()->template get_attr<int32_t>("fix_point");
+    std::cout << "[DEBUG] input fix_point=" << fp << " scale=" << (1 << fp) << "\n";
+    float scale = static_cast<float>(1 << fp);  // = 128.0f
+
+    // Step 3：逐元素 float → int8
+    for (size_t i = 0; i < input.size(); ++i) {
+        float val = input[i] * scale;           // float × 128
+        // clamp 到 int8 範圍
+        if (val >  127.0f) val =  127.0f;
+        if (val < -128.0f) val = -128.0f;
+        dst[i] = static_cast<int8_t>(val);      // 寫進 tensor buffer
+    }
+
+
     auto job = runner_->execute_async(inputs, outputs);
     runner_->wait(job.first, -1);
 
@@ -25,5 +58,33 @@ std::vector<Detection> DpuBackend::run(std::span<const float> input) {
     //   hint: outputs[0]->data() returns {void*, size_t}
     //   shape depends on your model's output layer
 
-    return {};
+    //Step 1：取 output ptr
+
+    auto [out_ptr, out_size] = outputs[0]->data(std::vector<int>{0, 0});
+    int8_t* src = reinterpret_cast<int8_t*>(out_ptr);
+
+    //Step 2：取 output fix_point
+
+    int ofp = outputs[0]->get_tensor()->template get_attr<int32_t>("fix_point");
+    float oscale = static_cast<float>(1 << ofp);
+
+    //Step 3：找 argmax
+
+    int best_idx = 0;
+    int8_t best_val = src[0];
+    for (int i = 1; i < 1000; ++i) {
+        if (src[i] > best_val) {
+            best_val = src[i];
+            best_idx = i;
+        }
+    }
+
+    // ---- 包成 Detection ----
+    Detection det;
+    det.class_id   = best_idx;
+    det.confidence = static_cast<float>(best_val) / oscale;
+    det.x1 = det.y1 = det.x2 = det.y2 = 0.0f;
+
+    return {det};
+
 }
