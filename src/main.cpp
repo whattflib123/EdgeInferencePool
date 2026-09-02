@@ -5,6 +5,11 @@
 #include "DpuBackend.hpp"
 #include "FrameQueue.hpp"
 #include "Frame.hpp"
+#include <opencv2/opencv.hpp>
+#include <cstring>
+
+
+
 
 static const xir::Subgraph* find_dpu_subgraph(xir::Graph* graph) {
     auto* root = graph->get_root_subgraph();
@@ -18,8 +23,8 @@ static const xir::Subgraph* find_dpu_subgraph(xir::Graph* graph) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "usage: " << argv[0] << " <model.xmodel>\n";
+    if (argc < 3) {
+        std::cerr << "usage: " << argv[0] << " <model.xmodel> <image.jpg>\n";
         return 1;
     }
 
@@ -34,10 +39,17 @@ int main(int argc, char* argv[]) {
     FrameQueue  queue;
 
     std::thread producer([&] {
-        for (int i = 0; i < 3; ++i) {
-            queue.push(Frame(i, 1228800));
-            std::cout << "pushed frame " << i << '\n';
-        }
+        cv::Mat img = cv::imread(argv[2]);          // BGR，保持不轉
+        cv::resize(img, img, cv::Size(224, 224));
+        img.convertTo(img, CV_32F);                 // uint8 → float
+        cv::Mat mean(224, 224, CV_32FC3, cv::Scalar(104.0f, 117.0f, 123.0f));
+        img = (img - mean) * (1.0f / 255.0f);      // Caffe BGR mean subtract
+
+        size_t nbytes = 224 * 224 * 3 * sizeof(float);
+        Frame f(0, nbytes);
+        std::memcpy(f.data(), img.data, nbytes);
+        std::cout << "pushed frame 0 (" << argv[2] << ")\n";
+        queue.push(std::move(f));
         queue.set_done();
     });
 

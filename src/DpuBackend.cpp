@@ -3,6 +3,10 @@
 #include <xir/graph/subgraph.hpp>
 #include <xir/attrs/attrs.hpp>
 #include <iostream>
+#include <numeric>    // std::iota
+#include <algorithm>  // std::partial_sort
+
+
 
 DpuBackend::DpuBackend(const xir::Subgraph* subgraph) {
     attrs_  = xir::Attrs::create();
@@ -68,23 +72,23 @@ std::vector<Detection> DpuBackend::run(std::span<const float> input) {
     int ofp = outputs[0]->get_tensor()->template get_attr<int32_t>("fix_point");
     float oscale = static_cast<float>(1 << ofp);
 
-    //Step 3：找 argmax
+    //Step 3：找 top-5
+    std::vector<int> idx(1000);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::partial_sort(idx.begin(), idx.begin()+5, idx.end(), [&](int a, int b){ return src[a] > src[b]; });
 
-    int best_idx = 0;
-    int8_t best_val = src[0];
-    for (int i = 1; i < 1000; ++i) {
-        if (src[i] > best_val) {
-            best_val = src[i];
-            best_idx = i;
-        }
-    }
+
 
     // ---- 包成 Detection ----
-    Detection det;
-    det.class_id   = best_idx;
-    det.confidence = static_cast<float>(best_val) / oscale;
-    det.x1 = det.y1 = det.x2 = det.y2 = 0.0f;
+    std::vector<Detection> results;
+    for (int i = 0; i < 5; ++i) {
+        Detection d;
+        d.class_id   = idx[i];
+        d.confidence = static_cast<float>(src[idx[i]]) / oscale;
+        d.x1 = d.y1 = d.x2 = d.y2 = 0.0f;
+        results.push_back(d);
+    }
+    return results;
 
-    return {det};
 
 }
