@@ -42,7 +42,7 @@ std::vector<Detection> DpuBackend::run(std::span<const float> input) {
 
     // step2: 
     int fp = inputs[0]->get_tensor()->template get_attr<int32_t>("fix_point");
-    std::cout << "[DEBUG] input fix_point=" << fp << " scale=" << (1 << fp) << "\n";
+    //std::cout << "[DEBUG] input fix_point=" << fp << " scale=" << (1 << fp) << "\n";
     float scale = static_cast<float>(1 << fp);  // = 128.0f
 
     // Step 3：逐元素 float → int8
