@@ -10,11 +10,11 @@ Felix 的 M1 DpuBackend 專案。把 VART API 接進 `InferenceBackend` 抽象�
 
 ## 使用者背景
 
-- Felix，SRAM AMR perception engineer，求職定位：**HW-aware ML Systems Engineer**（主軸 deployment/accelerator/FPGA，副軸 compiler/MLIR）
+- Felix，SRAM AMR perception engineer，求職定位：**HW-aware ML Systems Engineer**
+- 優先鎖定 deployment/runtime 職缺（NeuroPilot SDK、Vitis-AI/ROCm runtime 這類），非 compiler 或 RTL 路線
 - C++ Stage 0~13 已完成（pointer、RAII、Rule of Five、span、vector、多執行緒、多型、template）
 - 這個 repo 是把觀念搬進真實硬體專案的實戰期
 - 求職敘事核心：「能指著真實程式碼解釋 RAII / move / span / virtual 怎麼串在一起」
-- MLIR/LLVM 深投入**刻意排在 M1 完成後**才評估，不搶現在進度
 
 ## 環境
 
@@ -80,13 +80,13 @@ runner->wait(job.first, -1);
 | 2a | **VideoCapture 串流 pipeline** | VART API 實戰深化；`cv::VideoCapture` 取代 `cv::imread`，producer-consumer 改成 loop | 未開始 |
 | 2b | **M2：現成模型量化部署**（torchvision ResNet50 或 MobileNetV2） | 量化工作流實戰：`vai_q_pytorch` PTQ calibration → `vai_c_xir` 編譯 → xmodel → KV260；每次因硬體限制被迫調整（channel 對齊、不支援 op 替換）**當下記錄**成清單；若行為與論文 ZCU102 經驗不符（工具版本差異、參數預設值改變），順手記一筆 | 未開始 |
 | 3 | **刻意製造子圖切分場景** | 為 Profiler 製造可觀測案例；保留一個 DPU 不支援的 op 或跳過 op fusion，確保 xmodel 存在 DPU/CPU 交界 | 未開始 |
-| 4 | **Vitis AI Profiler 實測** | Profiler 實戰：從報表指出子圖切分點的延遲量並解釋原因；發現併入任務 2b 的清單 → 合併成「軟硬體協同設計筆記」 | 未開始 |
-
-**旁支（不擋主線，找空檔做）**：把論文量化決策整理成 2-3 個面試素材點——scale factor 怎麼算、PTQ vs QAT 取捨理由、ZCU102 量化前後精度掉多少。論文已經跑過完整流程，只需回想＋寫下來，分鐘等級。
+| 4 | **Vitis AI Profiler 實測** | Profiler 實戰：從報表指出子圖切分點的延遲量並解釋原因；**敘事框架**：用 compiler 語彙（partitioning、fusion boundary、BYOC）重描一次，讓同一份分析同時回答「懂 deployment」跟「對 compiler 那層有結構性理解」；發現併入任務 2b 的清單 → 合成「軟硬體協同設計筆記」 | 未開始 |
 
 執行順序：2a/2b 平行開始 → 3 → 4。任務 3、4 不等 2a 全完，有可跑的 xmodel 就可插入。
 
-MLIR/LLVM/自訂 NPU dialect 排在面試有回饋後才評估。
+**旁支（不擋主線，找空檔做）**
+- 論文量化決策整理：scale factor 怎麼算、PTQ vs QAT 取捨理由、ZCU102 量化前後精度掉多少。回想＋寫下來即可，分鐘等級。
+- **TVM 概覽（M2 完成後才開始，現在不要碰）**：目的是面試被問「你知道 SDK 底下 compiler 在幹嘛嗎」時能答出結構性理解。只挑 TVM（不碰 MLIR/XLA/IREE）。只需搞懂三件事：(1) IRModule 裡 Relax function（圖層）vs TIR PrimFunc（算子層）；(2) BYOC 概念——對應 vai_c 的 DPU/CPU 子圖切分；(3) Operator fusion 基本概念。看得懂官方 BYOC tutorial 即可，不用碰 relax.build() 原始碼或自己寫 pass。
 
 ## 架構說明
 
