@@ -10,11 +10,11 @@ Felix 的 M1 DpuBackend 專案。把 VART API 接進 `InferenceBackend` 抽象�
 
 ## 使用者背景
 
-- Felix，SRAM AMR perception engineer，求職定位：**HW-aware ML Systems Engineer**（主軸 deployment/accelerator/FPGA，副軸 compiler/MLIR）
+- Felix，SRAM AMR perception engineer，求職定位：**HW-aware ML Systems Engineer**
+- 優先鎖定 deployment/runtime 職缺（NeuroPilot SDK、Vitis-AI/ROCm runtime 這類），非 compiler 或 RTL 路線
 - C++ Stage 0~13 已完成（pointer、RAII、Rule of Five、span、vector、多執行緒、多型、template）
 - 這個 repo 是把觀念搬進真實硬體專案的實戰期
 - 求職敘事核心：「能指著真實程式碼解釋 RAII / move / span / virtual 怎麼串在一起」
-- MLIR/LLVM 深投入**刻意排在 M1 完成後**才評估，不搶現在進度
 
 ## 環境
 
@@ -37,35 +37,19 @@ cd ~/EdgeInferencePool/build && make 2>&1
 
 ## 目前狀態（2026-09-02）
 
-**編譯：✅ KV260 上 `make` 通過**
+**M1：✅ 完成並驗證**
 
 ### 已完成
 - `InferenceBackend` pure virtual 介面（`Detection` struct + `run(span<const float>)`）
 - `DpuBackend : InferenceBackend`，持有 `vart::RunnerExt` + `xir::Attrs`
-- `DpuBackend::DpuBackend(subgraph)` — runner 建好（`RunnerExt::create_runner`）
-- `main.cpp` — xmodel 載入、DPU subgraph 搜尋、producer-consumer pipeline
-
-### 卡住點（TODO）
-
-`src/DpuBackend.cpp` 裡兩個 TODO：
-
-```cpp
-// TODO 1: copy input span into inputs[0] tensor buffer
-// hint: auto [ptr, sz] = inputs[0]->data({0,0,0,0});
-//        memcpy(ptr, input.data(), input.size_bytes());
-
-// TODO 2: parse outputs[0] tensor buffer → vector<Detection>
-// hint: outputs[0]->data({0,0,0,0}) 取 ptr，shape 依模型輸出層
-```
-
-**需要 `.xmodel` 才能繼續**——input/output tensor shape 要對上模型。
+- INT8 量化輸入轉換（fix_point scale，逐元素 float → int8 clamp）
+- 輸出解析（top-5 argmax via `std::partial_sort + std::iota`）
+- OpenCV 前處理（Caffe BGR mean subtract：`(pixel - [104,117,123]) / 255`）
+- `main.cpp`：`cv::imread` 單張圖推論，producer-consumer pipeline，KV260 驗證通過
+- 驗證結果：`assets/dog.jpg`（金毛獵犬）→ top-1 class=337（golden retriever）✅
 
 ### 下一步
-1. KV260 上 `find / -name "*.xmodel"` 找現成模型
-2. 確認 tensor shape（ctor 印 `get_inputs()[0]->get_tensor()->get_shape()`）
-3. 填 TODO 1（memcpy）
-4. 填 TODO 2（output parse → Detection）
-5. 中期：考慮把碩論 ResNet-SpatialMixConv 量化出 xmodel，一次解決「有沒有 xmodel」跟「量化實驗數據」兩件事
+任務 1（手刻 INT8 量化）→ 任務 2（M2 VideoCapture + 現成模型量化）
 
 ## 關鍵 VART API 筆記
 
@@ -87,21 +71,22 @@ auto job = runner->execute_async(inputs, outputs);
 runner->wait(job.first, -1);
 ```
 
-## 專案路線圖
+## 專案路線圖（職涯缺口補強版）
 
-| 里程碑 | 內容 | 狀態 |
-|---|---|---|
-| M1 DpuBackend | VART API 接進 InferenceBackend | 🔄 進行中（TODO 未填）|
-| M2 | MobileNetV2 + Vitis-AI 量化，最小物件偵測 | 未開始 |
-| M3 | 機械手臂模擬 pipeline（UR5e + MoveIt2 + Gazebo） | 未開始 |
+目標職缺：AMD Taiwan AI R&D、TSMC AAID 等應用/部署路線。
 
-MLIR/LLVM/自訂 NPU dialect **不列入此路線圖**，排在 M1 完成、求職面試有回饋後再評估是否開新 Mx。
+| 順序 | 任務 | 對應缺口 | 狀態 |
+|---|---|---|---|
+| 2a | **VideoCapture 串流 pipeline** | VART API 實戰深化；`cv::VideoCapture` 取代 `cv::imread`，producer-consumer 改成 loop | 未開始 |
+| 2b | **M2：現成模型量化部署**（torchvision ResNet50 或 MobileNetV2） | 量化工作流實戰：`vai_q_pytorch` PTQ calibration → `vai_c_xir` 編譯 → xmodel → KV260；每次因硬體限制被迫調整（channel 對齊、不支援 op 替換）**當下記錄**成清單；若行為與論文 ZCU102 經驗不符（工具版本差異、參數預設值改變），順手記一筆 | 未開始 |
+| 3 | **刻意製造子圖切分場景** | 為 Profiler 製造可觀測案例；保留一個 DPU 不支援的 op 或跳過 op fusion，確保 xmodel 存在 DPU/CPU 交界 | 未開始 |
+| 4 | **Vitis AI Profiler 實測** | Profiler 實戰：從報表指出子圖切分點的延遲量並解釋原因；**敘事框架**：用 compiler 語彙（partitioning、fusion boundary、BYOC）重描一次，讓同一份分析同時回答「懂 deployment」跟「對 compiler 那層有結構性理解」；發現併入任務 2b 的清單 → 合成「軟硬體協同設計筆記」 | 未開始 |
 
-## 並行支線（不佔 M1 進度，不需 KV260）
+執行順序：2a/2b 平行開始 → 3 → 4。任務 3、4 不等 2a 全完，有可跑的 xmodel 就可插入。
 
-- **ONNX Graph Analyzer**：解析 `.onnx`，印出每層 shape、FLOPs、參數量
-- **手刻 INT8 量化**：FP32 → INT8 → FP32，拿 ResNet-SpatialMixConv 跑出 FP32/PTQ/QAT 三組 accuracy/model size/latency 對照表
-- 目的：支撐 HW-aware ML Systems Engineer 定位裡 quantization/graph 能力主張，可在等 KV260 編譯空檔穿插做
+**旁支（不擋主線，找空檔做）**
+- 論文量化決策整理：scale factor 怎麼算、PTQ vs QAT 取捨理由、ZCU102 量化前後精度掉多少。回想＋寫下來即可，分鐘等級。
+- **TVM 概覽（M2 完成後才開始，現在不要碰）**：目的是面試被問「你知道 SDK 底下 compiler 在幹嘛嗎」時能答出結構性理解。只挑 TVM（不碰 MLIR/XLA/IREE）。只需搞懂三件事：(1) IRModule 裡 Relax function（圖層）vs TIR PrimFunc（算子層）；(2) BYOC 概念——對應 vai_c 的 DPU/CPU 子圖切分；(3) Operator fusion 基本概念。看得懂官方 BYOC tutorial 即可，不用碰 relax.build() 原始碼或自己寫 pass。
 
 ## 架構說明
 
@@ -121,3 +106,4 @@ FrameQueue                ← mutex + condition_variable producer-consumer
 3. 改完後 rsync + KV260 make 驗證才算完成
 4. DpuBackend 的 inference 邏輯由 Felix 自己寫，給骨架不給完整解答
 5. commit 格式：`feat/fix/refactor/docs/chore(<scope>): <name>`
+6. Felix 同時與 claude.ai（網頁版 Claude）協作——一個階段結束後，詢問是否產出進度總覽（可貼給網頁版 Claude 同步 context）
