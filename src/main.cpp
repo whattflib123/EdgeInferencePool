@@ -38,6 +38,8 @@ int main(int argc, char* argv[]) {
     DpuBackend backend(subgraph);
     FrameQueue  queue;
 
+    std::string preproc = (argc >= 4) ? argv[3] : "pytorch";
+
     std::thread producer([&] {
         cv::VideoCapture cap;
         std::string src(argv[2]);
@@ -48,14 +50,28 @@ int main(int argc, char* argv[]) {
             queue.set_done();
             return;
         }
-        const cv::Mat mean_mat(224, 224, CV_32FC3, cv::Scalar(104.0f, 117.0f, 123.0f));
         const size_t nbytes = 224 * 224 * 3 * sizeof(float);
+        // caffe constants
+        const cv::Mat caffe_mean(224, 224, CV_32FC3, cv::Scalar(104.0f, 117.0f, 123.0f));
+        // pytorch constants (ImageNet, RGB order)
+        const cv::Scalar pt_mean(0.485f, 0.456f, 0.406f);
+        const cv::Scalar pt_std (0.229f, 0.224f, 0.225f);
+
         int frame_id = 0;
         cv::Mat img;
         while (cap.read(img)) {
             cv::resize(img, img, cv::Size(224, 224));
             img.convertTo(img, CV_32F);
-            img = (img - mean_mat) * (1.0f / 255.0f);
+
+            if (preproc == "caffe") {
+                img = (img - caffe_mean) * (1.0f / 255.0f);
+            } else {
+                cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+                img *= (1.0f / 255.0f);
+                cv::subtract(img, pt_mean, img);
+                cv::divide(img, pt_std, img);
+            }
+
             Frame f(frame_id++, nbytes);
             std::memcpy(f.data(), img.data, nbytes);
             queue.push(std::move(f));
